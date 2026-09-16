@@ -55,9 +55,9 @@ def kuresel_piyasayi_tara():
             else "📉 Baskı (SMA50 Altı)"
         )
 
-        # Otomatik Hedef Seviyeler (Destek ve Direnç Tahmini)
-        ideal_alim = son_fiyat * 0.97  # %3 altı destek bölgesi
-        hedef_satim = son_fiyat * 1.05  # %5 üstü direnç/kar al bölgesi
+        # Otomatik Hedef Seviyeler
+        ideal_alim = son_fiyat * 0.97
+        hedef_satim = son_fiyat * 1.05
 
         durum = "🟡 NÖTR"
         if son_rsi < 35:
@@ -83,7 +83,11 @@ def kuresel_piyasayi_tara():
     except:
       pass
 
-  return pd.DataFrame(rapor_listesi), asiri_alim_sayisi, firsat_sayisi
+  return (
+      pd.DataFrame(rapor_listesi),
+      asiri_alim_sayisi,
+      firsat_sayisi,
+  )
 
 
 # Arayüz Sekmeleri
@@ -107,12 +111,12 @@ with tab_matris:
         col_o1.metric("Taranan Toplam Varlık", len(df_sonuc))
         col_o2.metric(
             "Aşırı Alım Bölgesindeki Hisseler (Dikkat)",
-            asiri_alim_sayisi,
+            alim_cnt,
             delta_color="inverse",
         )
         col_o3.metric(
             "Aşırı Satım / Fırsat Adayları",
-            firsat_sayisi,
+            firsat_cnt,
             delta_color="normal",
         )
         st.markdown("---")
