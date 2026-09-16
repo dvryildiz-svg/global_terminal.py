@@ -1,3 +1,4 @@
+from feedparser import parse
 import pandas as pd
 import streamlit as st
 import yfinance as yf
@@ -11,10 +12,10 @@ st.set_page_config(
 st.title("🌍 Küresel Piyasalar: Teknoloji & Enerji Devleri Terminali")
 st.markdown(
     "ABD teknoloji ve dünya enerji devleri için anlık fiyat taraması, RSI"
-    " indikatörleri, trend analizi ve otomatik hedef fiyat matrisi."
+    " indikatörleri, trend analizi, hisse bazlı yönetici özetleri ve haber"
+    " akışı."
 )
 
-# Sektörel Sembol Grupları
 tech_devleri = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 enerji_devleri = ["XOM", "CVX", "SHEL", "TTE", "BP"]
 tum_hisseler = tech_devleri + enerji_devleri
@@ -39,7 +40,6 @@ def kuresel_piyasayi_tara():
             (son_fiyat - onceki_fiyat) / onceki_fiyat
         ) * 100
 
-        # RSI Hesaplama (14)
         delta = df["Close"].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -47,7 +47,6 @@ def kuresel_piyasayi_tara():
         rsi = 100 - (100 / (1 + rs))
         son_rsi = float(rsi.iloc[-1])
 
-        # 50 Günlük Hareketli Ortalama (Trend)
         sma50 = float(df["Close"].rolling(window=50).mean().iloc[-1])
         trend = (
             "📈 Yükseliş (SMA50 Üstü)"
@@ -55,7 +54,6 @@ def kuresel_piyasayi_tara():
             else "📉 Baskı (SMA50 Altı)"
         )
 
-        # Otomatik Hedef Seviyeler
         ideal_alim = son_fiyat * 0.97
         hedef_satim = son_fiyat * 1.05
 
@@ -90,9 +88,26 @@ def kuresel_piyasayi_tara():
   )
 
 
-# Arayüz Sekmeleri
+@st.cache_data(ttl=1800)
+def kuresel_haberleri_getir(hisse_kodu):
+  try:
+    url = f"https://news.google.com/rss/search?q={hisse_kodu}+stock+news&hl=EN&gl=US&ceid=US:en"
+    feed = parse(url)
+    haberler = [
+        {
+            "baslik": entry.title,
+            "link": entry.link,
+            "zaman": getattr(entry, "published", "Güncel"),
+        }
+        for entry in feed.entries[:5]
+    ]
+    return haberler
+  except:
+    return []
+
+
 tab_matris, tab_detay = st.tabs(
-    ["🌐 Küresel Sinyal Matrisi", "📊 Tekli Hisse & Grafik İnceleme"]
+    ["🌐 Küresel Sinyal Matrisi", "📊 Hisse Bazlı Yönetici Özeti ve Haberler"]
 )
 
 with tab_matris:
@@ -105,8 +120,7 @@ with tab_matris:
       if not df_sonuc.empty:
         st.success("Tarama başarıyla tamamlandı!")
 
-        # 📋 Yönetici Özeti Paneli (Executive Summary)
-        st.markdown("### 📊 Yönetici Özeti")
+        st.markdown("### 📊 Genel Yönetici Özeti")
         col_o1, col_o2, col_o3 = st.columns(3)
         col_o1.metric("Taranan Toplam Varlık", len(df_sonuc))
         col_o2.metric(
@@ -127,30 +141,80 @@ with tab_matris:
 
 with tab_detay:
   secilen_kuresel = st.selectbox(
-      "Detaylı İncelemek İstediğiniz Küresel Hisseyi Seçin:", tum_hisseler
+      "Detaylı İncelemek İstediğiniz Küresel Hisseyi Seçin:",
+      tum_hisseler,
+      key="detay_secim",
   )
 
-  if st.button("📈 Grafiği ve Verileri Getir"):
-    with st.spinner(f"{secilen_kuresel} verileri yükleniyor..."):
+  if st.button("🔍 Hisse Raporunu ve Haberleri Getir", key="btn_detay"):
+    with st.spinner(f"{secilen_kuresel} detayları ve haberleri yükleniyor..."):
       df_detay = yf.download(
           secilen_kuresel, period="1y", interval="1d", progress=False
       )
+      haberler = kuresel_haberleri_getir(secilen_kuresel)
+
       if df_detay is not None and not df_detay.empty:
         if isinstance(df_detay.columns, pd.MultiIndex):
           df_detay.columns = df_detay.columns.get_level_values(0)
 
-        df_detay["SMA50"] = df_detay["Close"].rolling(window=50).mean()
-        df_detay["SMA200"] = df_detay["Close"].rolling(window=200).mean()
+        son_fiyat = float(df_detay["Close"].iloc[-1])
+        onceki_fiyat = float(df_detay["Close"].iloc[-2])
+        degisim = ((son_fiyat - onceki_fiyat) / onceki_fiyat) * 100
 
-        son_fiyat_d = float(df_detay["Close"].iloc[-1])
-        st.metric(
-            label=f"{secilen_kuresel} Son Kapanış",
-            value=f"{son_fiyat_d:.2f} $",
-        )
+        delta = df_detay["Close"].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        son_rsi = float(rsi.iloc[-1])
 
+        sma50 = float(df_detay["Close"].rolling(window=50).mean().iloc[-1])
+        sma200 = float(df_detay["Close"].rolling(window=200).mean().iloc[-1])
+
+        # 📋 Hisse Bazlı Yönetici Özeti Kutuları
+        st.markdown(f"### 🎯 {secilen_kuresel} - Hisse Bazlı Yönetici Özeti")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Son Kapanış", f"{son_fiyat:.2f} $", f"{degisim:.2f}%")
+        c2.metric("RSI (14)", f"{son_rsi:.1f}")
+        c3.metric("İdeal Alım (Destek)", f"{son_fiyat * 0.97:.2f} $")
+        c4.metric("Hedef Satış (Direnç)", f"{son_fiyat * 1.05:.2f} $")
+
+        # Kısa Karar Yorumu
+        if son_rsi < 35:
+          st.success(
+              f"**Akıllı Sinyal:** 🟢 **AL / FIRSAT** — {secilen_kuresel} aşırı"
+              " satım bölgesinde. Kademeli alım fırsatları değerlendirilebilir."
+          )
+        elif son_rsi > 65:
+          st.warning(
+              f"**Akıllı Sinyal:** 🔴 **DİKKAT / SAT** — {secilen_kuresel} aşırı"
+              " alım bölgesinde, kısa vadeli kar satışlarına karşı temkinli"
+              " olunmalı."
+          )
+        else:
+          st.info(
+              f"**Akıllı Sinyal:** 🟡 **TUT / NÖTR** — Fiyat hareketleri dengeli"
+              " seyrediyor."
+          )
+
+        st.markdown("---")
+
+        # Fiyat Grafiği
         st.subheader(
             f"{secilen_kuresel} Fiyat ve Hareketli Ortalamalar (SMA50 / SMA200)"
         )
+        df_detay["SMA50"] = df_detay["Close"].rolling(window=50).mean()
+        df_detay["SMA200"] = df_detay["Close"].rolling(window=200).mean()
         st.line_chart(df_detay[["Close", "SMA50", "SMA200"]])
+
+        st.markdown("---")
+
+        # 📰 Şirket ve Piyasa Haberleri Sekmesi
+        st.subheader(f"📰 {secilen_kuresel} Son Küresel Basın ve Haber Akışı")
+        if haberler:
+          for h in haberler:
+            st.markdown(f"- **[{h['zaman']}]** [{h['baslik']}]({h['link']})")
+        else:
+          st.info("Bu hisse için güncel haber akışı bulunamadı.")
       else:
-        st.warning("Hisse grafik verisi alınamadı.")
+        st.warning("Hisse verisi alınamadı.")
